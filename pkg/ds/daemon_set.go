@@ -27,8 +27,8 @@ type DaemonSet interface {
 
 	WatchDesires(
 		quitCh <-chan struct{},
-		updatedCh <-chan fields.DaemonSet,
-		deletedCh <-chan struct{},
+		updatedCh <-chan *fields.DaemonSet,
+		deletedCh <-chan *fields.DaemonSet,
 		nodesChangedCh <-chan struct{},
 	) <-chan error
 
@@ -95,8 +95,8 @@ func (ds *daemonSet) ID() fields.ID {
 // The caller is responsible for sending signals when something has been changed
 func (ds *daemonSet) WatchDesires(
 	quitCh <-chan struct{},
-	updatedCh <-chan fields.DaemonSet,
-	deletedCh <-chan struct{},
+	updatedCh <-chan *fields.DaemonSet,
+	deletedCh <-chan *fields.DaemonSet,
 	nodesChangedCh <-chan struct{},
 ) <-chan error {
 	errCh := make(chan error)
@@ -126,11 +126,15 @@ func (ds *daemonSet) WatchDesires(
 			select {
 			case newDS := <-updatedCh:
 				ds.logger.NoFields().Infof("Received daemon set update signal: %v", newDS)
+				if newDS == nil {
+					ds.logger.NoFields().Infof("Very odd, recieved a nil daemon set during update for %v, recovered", *ds)
+					continue
+				}
 				if ds.ID() != newDS.ID {
 					err = util.Errorf("Expected uuid to be the same, expected '%v', got '%v'", ds.ID(), newDS.ID)
 					continue
 				}
-				ds.DaemonSet = newDS
+				ds.DaemonSet = *newDS
 
 				if ds.Disabled {
 					continue
@@ -146,8 +150,17 @@ func (ds *daemonSet) WatchDesires(
 					continue
 				}
 
-			case <-deletedCh:
-				ds.logger.NoFields().Infof("Received daemon set delete signal")
+			case deleteDS := <-deletedCh:
+				ds.logger.NoFields().Infof("Received daemon set delete signal: %v", deleteDS)
+				if deleteDS == nil {
+					ds.logger.NoFields().Infof("Very odd, recieved a nil daemon set during delete for %v, recovered", *ds)
+					continue
+				}
+				if ds.ID() != deleteDS.ID {
+					err = util.Errorf("Expected uuid to be the same, expected '%v', got '%v'", ds.ID(), deleteDS.ID)
+					continue
+				}
+
 				err = ds.clearPods()
 				if err != nil {
 					err = util.Errorf("Unable to clear pods from intent tree: %v", err)
