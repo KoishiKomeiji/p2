@@ -73,8 +73,8 @@ func watchDSChanges(
 	ds *daemonSet,
 	dsStore dsstore.Store,
 	quitCh <-chan struct{},
-	updatedCh chan<- ds_fields.DaemonSet,
-	deletedCh chan<- struct{},
+	updatedCh chan<- *ds_fields.DaemonSet,
+	deletedCh chan<- *ds_fields.DaemonSet,
 ) <-chan error {
 	errCh := make(chan error)
 	changesCh := dsStore.Watch(quitCh)
@@ -101,13 +101,13 @@ func watchDSChanges(
 			for _, changedDS := range watched.Updated {
 				if ds.ID() == changedDS.ID {
 					ds.logger.NoFields().Infof("Watched daemon set get updated: %v", *changedDS)
-					updatedCh <- *changedDS
+					updatedCh <- changedDS
 				}
 			}
 			for _, changedDS := range watched.Deleted {
 				if ds.ID() == changedDS.ID {
-					ds.logger.NoFields().Infof("Watched daemon set get deleted: %v", changedDS)
-					deletedCh <- struct{}{}
+					ds.logger.NoFields().Infof("Watched daemon set get deleted: %v", *changedDS)
+					deletedCh <- changedDS
 				}
 			}
 		}
@@ -169,8 +169,8 @@ func TestSchedule(t *testing.T) {
 	// to the daemon set
 	//
 	quitCh := make(chan struct{})
-	updatedCh := make(chan ds_fields.DaemonSet)
-	deletedCh := make(chan struct{})
+	updatedCh := make(chan *ds_fields.DaemonSet)
+	deletedCh := make(chan *ds_fields.DaemonSet)
 	nodesChangedCh := make(chan struct{})
 	defer close(quitCh)
 	defer close(updatedCh)
