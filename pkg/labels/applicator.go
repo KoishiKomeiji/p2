@@ -53,6 +53,13 @@ type Labeled struct {
 	Labels    labels.Set
 }
 
+type LabeledChanges struct {
+	Created []Labeled
+	Updated []Labeled
+	Deleted []Labeled
+	Err     error
+}
+
 func (l Labeled) SameAs(o Labeled) bool {
 	return l.ID == o.ID && l.LabelType == o.LabelType
 }
@@ -87,4 +94,7 @@ type Applicator interface {
 	// this reason, callers should **always** verify that the channel is closed by checking
 	// the "ok" boolean or using `range`.
 	WatchMatches(selector labels.Selector, labelType Type, quitCh chan struct{}) chan []Labeled
+
+	// Watches for changes to a type tree
+	WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges
 }

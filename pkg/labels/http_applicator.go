@@ -99,3 +99,7 @@ func (h *httpApplicator) WatchMatches(selector labels.Selector, labelType Type, 
 	panic("Not implemented")
 	return nil
 }
+
+func (h *httpApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
+	panic("Not implemented")
+}

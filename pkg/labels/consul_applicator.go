@@ -11,6 +11,7 @@ import (
 	"github.com/rcrowley/go-metrics"
 	"k8s.io/kubernetes/pkg/labels"
 
+	"github.com/square/p2/pkg/kp/consulutil"
 	"github.com/square/p2/pkg/logging"
 	"github.com/square/p2/pkg/types"
 	"github.com/square/p2/pkg/util"
@@ -257,6 +258,77 @@ func (c *consulApplicator) WatchMatches(selector labels.Selector, labelType Type
 		c.aggregators[labelType] = aggregator
 	}
 	return aggregator.Watch(selector, quitCh)
+}
+
+// WatchDiff watches a tree of the indicated type for changes and returns a
+// blocking channel where the client can read an object which contain changes
+func (c *consulApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
+	outCh := make(chan *LabeledChanges)
+	errCh := make(chan error)
+
+	go func() {
+		defer close(outCh)
+		defer close(errCh)
+
+		inCh := consulutil.WatchDiff(typePath(labelType), c.kv, quitCh, errCh)
+
+		for {
+			var kvps *consulutil.WatchedChanges
+			outgoingChanges := &LabeledChanges{}
+
+			select {
+			case <-quitCh:
+				return
+			case err := <-errCh:
+				if err != nil {
+					outgoingChanges.Err = util.Errorf("WatchDiff returned error: %v, recovered", err)
+					select {
+					case <-quitCh:
+						return
+					case outCh <- outgoingChanges:
+						continue
+					}
+				}
+			case kvps = <-inCh:
+				if kvps == nil {
+					c.logger.Errorf("Very odd, kvps should never be null, recovered.")
+					continue
+				}
+			}
+
+			for _, pair := range kvps.Created {
+				labeled, err := convertKVPToLabeled(pair)
+				if err != nil {
+					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
+				}
+				outgoingChanges.Created = append(outgoingChanges.Created, labeled)
+			}
+
+			for _, pair := range kvps.Updated {
+				labeled, err := convertKVPToLabeled(pair)
+				if err != nil {
+					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
+				}
+				outgoingChanges.Updated = append(outgoingChanges.Updated, labeled)
+			}
+
+			for _, pair := range kvps.Deleted {
+				labeled, err := convertKVPToLabeled(pair)
+				if err != nil {
+					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
+				}
+				outgoingChanges.Deleted = append(outgoingChanges.Deleted, labeled)
+			}
+
+			select {
+			case <-quitCh:
+				return
+			case outCh <- outgoingChanges:
+			}
+		}
+	}()
+
+	return outCh
 }
 
 // these utility functions are used primarily while we exist in a mutable

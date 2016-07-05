@@ -117,6 +117,10 @@ func (app *fakeApplicator) WatchMatches(selector labels.Selector, labelType Type
 	return ch
 }
 
+func (app *fakeApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
+	panic("Not implemented")
+}
+
 // avoid returning elements of the inner data map, otherwise concurrent callers
 // may cause races when mutating them
 func copySet(in labels.Set) labels.Set {
