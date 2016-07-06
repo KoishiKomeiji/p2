@@ -2,6 +2,7 @@ package labels
 
 import (
 	"sync"
+	"time"
 
 	"k8s.io/kubernetes/pkg/labels"
 )
@@ -118,7 +119,76 @@ func (app *fakeApplicator) WatchMatches(selector labels.Selector, labelType Type
 }
 
 func (app *fakeApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
-	panic("Not implemented")
+	outCh := make(chan *LabeledChanges)
+
+	go func() {
+		defer close(outCh)
+		timer := time.NewTimer(time.Duration(0))
+
+		app.mutex.Lock()
+		currentLabels := make(map[string]labels.Set)
+		for id, set := range app.data[labelType] {
+			currentLabels[id] = copySet(set)
+		}
+		app.mutex.Unlock()
+
+		for {
+			select {
+			case <-quitCh:
+				return
+			case <-timer.C:
+			}
+			timer.Reset(250 * time.Millisecond) // upper bound on request rate
+
+			app.mutex.Lock()
+			// Remove the labels you've seen, and then you've got what was deleted
+			newLabels := make(map[string]labels.Set)
+			for id, set := range app.data[labelType] {
+				newLabels[id] = copySet(set)
+			}
+			app.mutex.Unlock()
+
+			outgoingChanges := &LabeledChanges{}
+			for id, set := range newLabels {
+				if _, ok := currentLabels[id]; !ok {
+					// If it is not observed, then it was created
+					outgoingChanges.Created = append(outgoingChanges.Created, Labeled{
+						ID:        id,
+						LabelType: labelType,
+						Labels:    copySet(set),
+					})
+					currentLabels[id] = copySet(set)
+
+				} else if currentLabels[id].String() != set.String() {
+					// Then it is in the map, if the values are not the same, it was an update
+					outgoingChanges.Updated = append(outgoingChanges.Updated, Labeled{
+						ID:        id,
+						LabelType: labelType,
+						Labels:    copySet(set),
+					})
+					currentLabels[id] = copySet(set)
+				}
+			}
+			// If it was not observed, then it was a delete
+			for id, set := range currentLabels {
+				if _, ok := newLabels[id]; !ok {
+					outgoingChanges.Deleted = append(outgoingChanges.Deleted, Labeled{
+						ID:        id,
+						LabelType: labelType,
+						Labels:    copySet(set),
+					})
+					delete(currentLabels, id)
+				}
+			}
+
+			select {
+			case <-quitCh:
+				return
+			case outCh <- outgoingChanges:
+			}
+		}
+	}()
+	return outCh
 }
 
 // avoid returning elements of the inner data map, otherwise concurrent callers
