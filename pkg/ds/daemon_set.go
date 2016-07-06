@@ -127,7 +127,7 @@ func (ds *daemonSet) WatchDesires(
 			case newDS := <-updatedCh:
 				ds.logger.NoFields().Infof("Received daemon set update signal: %v", newDS)
 				if newDS == nil {
-					ds.logger.NoFields().Infof("Very odd, recieved a nil daemon set during update for %v, recovered", *ds)
+					ds.logger.NoFields().Infof("Recieved a nil daemon set during update for %v, recovered", *ds)
 					continue
 				}
 				if ds.ID() != newDS.ID {
@@ -153,7 +153,7 @@ func (ds *daemonSet) WatchDesires(
 			case deleteDS := <-deletedCh:
 				ds.logger.NoFields().Infof("Received daemon set delete signal: %v", deleteDS)
 				if deleteDS == nil {
-					ds.logger.NoFields().Infof("Very odd, recieved a nil daemon set during delete for %v, recovered", *ds)
+					ds.logger.NoFields().Infof("Recieved a nil daemon set during delete for %v, recovered", *ds)
 					continue
 				}
 				if ds.ID() != deleteDS.ID {
@@ -276,7 +276,7 @@ func (ds *daemonSet) clearPods() error {
 }
 
 func (ds *daemonSet) schedule(node types.NodeName) error {
-	ds.logger.NoFields().Infof("Scheduling on %s", node)
+	ds.logger.NoFields().Infof("Scheduling on %s with daemon set uuid %s", node, ds.ID())
 
 	// Will apply the following label on the key <labels.POD>/<node>/<ds.Manifest.ID()>:
 	// 	{ DSIDLabel : ds.ID() }
@@ -299,7 +299,7 @@ func (ds *daemonSet) schedule(node types.NodeName) error {
 }
 
 func (ds *daemonSet) unschedule(node types.NodeName) error {
-	ds.logger.NoFields().Infof("Unscheduling from %s", node)
+	ds.logger.NoFields().Infof("Unscheduling from %s with daemon set uuid %s", node, ds.ID())
 
 	// Will remove the following key:
 	// <kp.INTENT_TREE>/<node>/<ds.Manifest.ID()>

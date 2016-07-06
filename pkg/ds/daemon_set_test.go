@@ -102,13 +102,13 @@ func watchDSChanges(
 			// creations are handled when WatchDesires is called, so ignore them here
 			for _, changedDS := range watched.Updated {
 				if ds.ID() == changedDS.ID {
-					ds.logger.NoFields().Infof("Watched daemon set get updated: %v", *changedDS)
+					ds.logger.NoFields().Infof("Watched daemon set was updated: %v", *changedDS)
 					updatedCh <- changedDS
 				}
 			}
 			for _, changedDS := range watched.Deleted {
 				if ds.ID() == changedDS.ID {
-					ds.logger.NoFields().Infof("Watched daemon set get deleted: %v", *changedDS)
+					ds.logger.NoFields().Infof("Watched daemon set was deleted: %v", *changedDS)
 					deletedCh <- changedDS
 				}
 			}
