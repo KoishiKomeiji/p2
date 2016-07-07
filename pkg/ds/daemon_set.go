@@ -25,6 +25,10 @@ const (
 type DaemonSet interface {
 	ID() fields.ID
 
+	IsDisabled() bool
+
+	PodID() types.PodID
+
 	WatchDesires(
 		quitCh <-chan struct{},
 		updatedCh <-chan *fields.DaemonSet,
@@ -33,6 +37,9 @@ type DaemonSet interface {
 
 	// CurrentPods() returns all nodes that are scheduled by this daemon set
 	CurrentPods() (types.PodLocations, error)
+
+	// EligibleNodes() returns all eligible nodes schedulable by this daemon set
+	EligibleNodes() ([]types.NodeName, error)
 }
 
 // These methods are the same as the methods of the same name in kp.Store.
@@ -81,6 +88,14 @@ func New(
 
 func (ds *daemonSet) ID() fields.ID {
 	return ds.DaemonSet.ID
+}
+
+func (ds *daemonSet) IsDisabled() bool {
+	return ds.DaemonSet.Disabled
+}
+
+func (ds *daemonSet) PodID() types.PodID {
+	return ds.DaemonSet.PodID
 }
 
 // WatchDesires watches for changes to its daemon set, then schedule/unschedule
@@ -249,7 +264,7 @@ func (ds *daemonSet) addPods() error {
 	}
 	currentNodes := podLocations.Nodes()
 
-	eligible, err := ds.scheduler.EligibleNodes(ds.Manifest, ds.NodeSelector)
+	eligible, err := ds.EligibleNodes()
 	if err != nil {
 		return util.Errorf("Error retrieving eligible nodes for daemon set: %v", err)
 	}
@@ -277,7 +292,7 @@ func (ds *daemonSet) removePods() error {
 	}
 	currentNodes := podLocations.Nodes()
 
-	eligible, err := ds.scheduler.EligibleNodes(ds.Manifest, ds.NodeSelector)
+	eligible, err := ds.EligibleNodes()
 	if err != nil {
 		return util.Errorf("Error retrieving eligible nodes for daemon set: %v", err)
 	}
@@ -387,4 +402,8 @@ func (ds *daemonSet) CurrentPods() (types.PodLocations, error) {
 	}
 
 	return result, nil
+}
+
+func (ds *daemonSet) EligibleNodes() ([]types.NodeName, error) {
+	return ds.scheduler.EligibleNodes(ds.Manifest, ds.NodeSelector)
 }
