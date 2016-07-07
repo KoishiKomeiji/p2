@@ -120,6 +120,7 @@ func (ds *daemonSet) WatchDesires(
 				select {
 				case errCh <- err:
 				case <-quitCh:
+					return
 				}
 			}
 
