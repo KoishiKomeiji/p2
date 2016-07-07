@@ -29,7 +29,6 @@ type DaemonSet interface {
 		quitCh <-chan struct{},
 		updatedCh <-chan *fields.DaemonSet,
 		deletedCh <-chan *fields.DaemonSet,
-		nodesChangedCh <-chan struct{},
 	) <-chan error
 
 	// CurrentPods() returns all nodes that are scheduled by this daemon set
@@ -97,14 +96,15 @@ func (ds *daemonSet) WatchDesires(
 	quitCh <-chan struct{},
 	updatedCh <-chan *fields.DaemonSet,
 	deletedCh <-chan *fields.DaemonSet,
-	nodesChangedCh <-chan struct{},
 ) <-chan error {
 	errCh := make(chan error)
+	nodesChangedCh := make(chan struct{})
 
 	// Do something whenever something is changed
 	go func() {
 		var err error
 		defer close(errCh)
+		defer close(nodesChangedCh)
 
 		// Try to schedule pods when this begins watching
 		if !ds.Disabled {
@@ -193,7 +193,51 @@ func (ds *daemonSet) WatchDesires(
 		}
 	}()
 
+	// Send a node changed signal whenever the selected nodes in the store change
+	go func() {
+		changedCh := ds.watchNodeChanges(quitCh)
+		for {
+			select {
+			case <-quitCh:
+				return
+			case <-changedCh:
+				nodesChangedCh <- struct{}{}
+			}
+		}
+	}()
+
 	return errCh
+}
+
+// Watch for changes to nodes and sends update and delete signals
+func (ds *daemonSet) watchNodeChanges(
+	quitCh <-chan struct{},
+) <-chan struct{} {
+	nodesChangedCh := make(chan struct{})
+
+	go func() {
+		var changes *labels.LabeledChanges
+
+		labeledChanges := ds.applicator.WatchMatchDiff(ds.NodeSelector, labels.NODE, quitCh)
+
+		for {
+			select {
+			case <-quitCh:
+				return
+			case changes = <-labeledChanges:
+				if changes == nil {
+					ds.logger.Errorf("Unexpected nil value received from WatchMatchDiff, recovered")
+					continue
+				}
+			}
+
+			if len(changes.Created) != 0 || len(changes.Updated) != 0 || len(changes.Deleted) != 0 {
+				nodesChangedCh <- struct{}{}
+			}
+		}
+	}()
+
+	return nodesChangedCh
 }
 
 // addPods schedules pods for all unscheduled nodes selected by ds.nodeSelector

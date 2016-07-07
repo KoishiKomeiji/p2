@@ -11,7 +11,6 @@ import (
 	"github.com/rcrowley/go-metrics"
 	"k8s.io/kubernetes/pkg/labels"
 
-	"github.com/square/p2/pkg/kp/consulutil"
 	"github.com/square/p2/pkg/logging"
 	"github.com/square/p2/pkg/types"
 	"github.com/square/p2/pkg/util"
@@ -248,7 +247,7 @@ func convertLabeledToKVP(l Labeled) (*api.KVPair, error) {
 // to the cost of querying for this subtree on any sizeable fleet of machines. Instead, preparers should
 // use the httpApplicator from a server that exposes the results of this (or another)
 // implementation's watch.
-func (c *consulApplicator) WatchMatches(selector labels.Selector, labelType Type, quitCh chan struct{}) chan []Labeled {
+func (c *consulApplicator) WatchMatches(selector labels.Selector, labelType Type, quitCh <-chan struct{}) chan []Labeled {
 	c.aggregatorMux.Lock()
 	defer c.aggregatorMux.Unlock()
 	aggregator, ok := c.aggregators[labelType]
@@ -260,64 +259,75 @@ func (c *consulApplicator) WatchMatches(selector labels.Selector, labelType Type
 	return aggregator.Watch(selector, quitCh)
 }
 
-// WatchDiff watches a tree of the indicated type for changes and returns a
-// blocking channel where the client can read an object which contain changes
-func (c *consulApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
+func (c *consulApplicator) WatchMatchDiff(
+	selector labels.Selector,
+	labelType Type,
+	quitCh <-chan struct{},
+) <-chan *LabeledChanges {
 	outCh := make(chan *LabeledChanges)
-	errCh := make(chan error)
 
 	go func() {
 		defer close(outCh)
-		defer close(errCh)
 
-		inCh := consulutil.WatchDiff(typePath(labelType), c.kv, quitCh, errCh)
+		var labelsList []Labeled
+		inCh := c.WatchMatches(selector, labelType, quitCh)
 
+		// Get a starting value to compare to
 		for {
-			var kvps *consulutil.WatchedChanges
-			outgoingChanges := &LabeledChanges{}
-
 			select {
 			case <-quitCh:
 				return
-			case err := <-errCh:
-				if err != nil {
-					outgoingChanges.Err = util.Errorf("WatchDiff returned error: %v, recovered", err)
-					select {
-					case <-quitCh:
-						return
-					case outCh <- outgoingChanges:
-						continue
-					}
+			case labelsList = <-inCh:
+				if labelsList == nil {
+					c.logger.Errorf("Unexpected nil value received from WatchMatches, recovered")
+					continue
 				}
-			case kvps = <-inCh:
-				if kvps == nil {
-					c.logger.Errorf("Very odd, kvps should never be null, recovered.")
+			}
+			break
+		}
+
+		oldLabels := make(map[string]Labeled)
+		for _, labeled := range labelsList {
+			oldLabels[labeled.ID] = labeled
+		}
+
+		for {
+			var results []Labeled
+			select {
+			case <-quitCh:
+				return
+			case results = <-inCh:
+				if results == nil {
+					c.logger.Errorf("Unexpected nil value received from WatchMatches, recovered")
 					continue
 				}
 			}
 
-			for _, pair := range kvps.Created {
-				labeled, err := convertKVPToLabeled(pair)
-				if err != nil {
-					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
-				}
-				outgoingChanges.Created = append(outgoingChanges.Created, labeled)
+			newLabels := make(map[string]Labeled)
+			for _, labeled := range results {
+				newLabels[labeled.ID] = labeled
 			}
 
-			for _, pair := range kvps.Updated {
-				labeled, err := convertKVPToLabeled(pair)
-				if err != nil {
-					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
+			outgoingChanges := &LabeledChanges{}
+			for id, nodeLabel := range newLabels {
+				if _, ok := oldLabels[id]; !ok {
+					// If it was not observed, then it was created
+					outgoingChanges.Created = append(outgoingChanges.Created, nodeLabel)
+					oldLabels[id] = nodeLabel
+
+				} else if oldLabels[id].Labels.String() != nodeLabel.Labels.String() {
+					// If they are not equal, update them
+					outgoingChanges.Updated = append(outgoingChanges.Updated, nodeLabel)
+					oldLabels[id] = nodeLabel
 				}
-				outgoingChanges.Updated = append(outgoingChanges.Updated, labeled)
+				// Otherwise no changes need to be made
 			}
 
-			for _, pair := range kvps.Deleted {
-				labeled, err := convertKVPToLabeled(pair)
-				if err != nil {
-					outgoingChanges.Err = util.Errorf("Unable to convert kvp to labeled: %v", err)
+			for id, nodeLabel := range oldLabels {
+				if _, ok := newLabels[id]; !ok {
+					outgoingChanges.Deleted = append(outgoingChanges.Deleted, nodeLabel)
+					delete(oldLabels, id)
 				}
-				outgoingChanges.Deleted = append(outgoingChanges.Deleted, labeled)
 			}
 
 			select {

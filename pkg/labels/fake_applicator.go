@@ -1,6 +1,7 @@
 package labels
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -103,81 +104,110 @@ func (app *fakeApplicator) GetMatches(selector labels.Selector, labelType Type) 
 	return results, nil
 }
 
-func (app *fakeApplicator) WatchMatches(selector labels.Selector, labelType Type, quitCh chan struct{}) chan []Labeled {
+func (app *fakeApplicator) WatchMatches(selector labels.Selector, labelType Type, quitCh <-chan struct{}) chan []Labeled {
 	ch := make(chan []Labeled)
+	timer := time.NewTimer(time.Duration(0))
 	go func() {
-		for {
-			res, _ := app.GetMatches(selector, labelType)
-			select {
-			case <-quitCh:
-				return
-			case ch <- res:
-			}
-		}
-	}()
-	return ch
-}
-
-func (app *fakeApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
-	outCh := make(chan *LabeledChanges)
-
-	go func() {
-		defer close(outCh)
-		timer := time.NewTimer(time.Duration(0))
-
-		app.mutex.Lock()
-		currentLabels := make(map[string]labels.Set)
-		for id, set := range app.data[labelType] {
-			currentLabels[id] = copySet(set)
-		}
-		app.mutex.Unlock()
-
 		for {
 			select {
 			case <-quitCh:
 				return
 			case <-timer.C:
 			}
-			timer.Reset(250 * time.Millisecond) // upper bound on request rate
+			// upper bound on request rate
+			timer.Reset(100 * time.Millisecond)
 
-			app.mutex.Lock()
-			// Remove the labels you've seen, and then you've got what was deleted
-			newLabels := make(map[string]labels.Set)
-			for id, set := range app.data[labelType] {
-				newLabels[id] = copySet(set)
+			res, _ := app.GetMatches(selector, labelType)
+			select {
+			case <-quitCh:
+				return
+			case ch <- res:
 			}
-			app.mutex.Unlock()
+
+		}
+	}()
+	return ch
+}
+
+func (app *fakeApplicator) WatchMatchDiff(
+	selector labels.Selector,
+	labelType Type,
+	quitCh <-chan struct{},
+) <-chan *LabeledChanges {
+	outCh := make(chan *LabeledChanges)
+
+	go func() {
+		defer close(outCh)
+
+		var labelsList []Labeled
+		inCh := app.WatchMatches(selector, labelType, quitCh)
+
+		// Get a starting value to compare to
+		for {
+			select {
+			case <-quitCh:
+				return
+			case labelsList = <-inCh:
+				if labelsList == nil {
+					fmt.Println("Unexpected nil value received from WatchMatches, recovered")
+					continue
+				}
+			}
+			break
+		}
+
+		oldLabels := make(map[string]Labeled)
+		for _, labeled := range labelsList {
+			oldLabels[labeled.ID] = labeled
+		}
+
+		for {
+			var results []Labeled
+			select {
+			case <-quitCh:
+				return
+			case results = <-inCh:
+				if results == nil {
+					fmt.Println("Unexpected nil value received from WatchMatches, recovered")
+					continue
+				}
+			}
+
+			newLabels := make(map[string]Labeled)
+			for _, labeled := range results {
+				newLabels[labeled.ID] = labeled
+			}
 
 			outgoingChanges := &LabeledChanges{}
-			for id, set := range newLabels {
-				if _, ok := currentLabels[id]; !ok {
+			for id, labeled := range newLabels {
+				if _, ok := oldLabels[id]; !ok {
 					// If it is not observed, then it was created
 					outgoingChanges.Created = append(outgoingChanges.Created, Labeled{
 						ID:        id,
 						LabelType: labelType,
-						Labels:    copySet(set),
+						Labels:    copySet(labeled.Labels),
 					})
-					currentLabels[id] = copySet(set)
+					oldLabels[id] = labeled
 
-				} else if currentLabels[id].String() != set.String() {
+				} else if oldLabels[id].Labels.String() != labeled.Labels.String() {
 					// Then it is in the map, if the values are not the same, it was an update
 					outgoingChanges.Updated = append(outgoingChanges.Updated, Labeled{
 						ID:        id,
 						LabelType: labelType,
-						Labels:    copySet(set),
+						Labels:    copySet(labeled.Labels),
 					})
-					currentLabels[id] = copySet(set)
+					oldLabels[id] = labeled
 				}
 			}
 			// If it was not observed, then it was a delete
-			for id, set := range currentLabels {
+			for id, labeled := range oldLabels {
 				if _, ok := newLabels[id]; !ok {
 					outgoingChanges.Deleted = append(outgoingChanges.Deleted, Labeled{
 						ID:        id,
 						LabelType: labelType,
-						Labels:    copySet(set),
+						Labels:    copySet(labeled.Labels),
 					})
-					delete(currentLabels, id)
+					delete(oldLabels, id)
 				}
 			}
 
@@ -188,6 +218,7 @@ func (app *fakeApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-c
 			}
 		}
 	}()
+
 	return outCh
 }
 

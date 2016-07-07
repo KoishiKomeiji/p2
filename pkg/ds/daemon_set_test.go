@@ -34,7 +34,6 @@ func waitForNodes(
 	desired int,
 	desiresErrCh <-chan error,
 	dsChangesErrCh <-chan error,
-	nodeChangesErrCh <-chan error,
 ) int {
 	timeout := time.After(1 * time.Second)
 	podLocations, err := ds.CurrentPods()
@@ -56,8 +55,6 @@ func waitForNodes(
 				Assert(t).IsNil(err, "expected no error watches desires")
 			case err = <-dsChangesErrCh:
 				Assert(t).IsNil(err, "expected no error watching for daemon set changes")
-			case err = <-nodeChangesErrCh:
-				Assert(t).IsNil(err, "expected no error watching for node changes")
 			default:
 			}
 
@@ -117,43 +114,6 @@ func watchDSChanges(
 	return errCh
 }
 
-// Watch for changes to nodes and sends update and delete signals
-func watchNodeChanges(
-	applicator labels.Applicator,
-	quitCh <-chan struct{},
-	nodesChangedCh chan<- struct{},
-) <-chan error {
-	errCh := make(chan error)
-
-	go func() {
-		defer close(errCh)
-		var changes *labels.LabeledChanges
-		labeledChanges := applicator.WatchDiff(labels.NODE, quitCh)
-
-		for {
-			select {
-			case <-quitCh:
-				return
-			case changes = <-labeledChanges:
-			}
-
-			if changes.Err != nil {
-				select {
-				case errCh <- util.Errorf("Error occurred when trying to get all the nodes: %v", changes.Err):
-				case <-quitCh:
-					return
-				}
-			}
-
-			if len(changes.Created) != 0 || len(changes.Updated) != 0 || len(changes.Deleted) != 0 {
-				nodesChangedCh <- struct{}{}
-			}
-		}
-	}()
-
-	return errCh
-}
-
 // TestSchedule checks consecutive scheduling and unscheduling for:
 //	- creation of a daemon set
 // 	- different node selectors
@@ -210,19 +170,16 @@ func TestSchedule(t *testing.T) {
 	quitCh := make(chan struct{})
 	updatedCh := make(chan *ds_fields.DaemonSet)
 	deletedCh := make(chan *ds_fields.DaemonSet)
-	nodesChangedCh := make(chan struct{})
 	defer close(quitCh)
 	defer close(updatedCh)
 	defer close(deletedCh)
-	defer close(nodesChangedCh)
-	desiresErrCh := ds.WatchDesires(quitCh, updatedCh, deletedCh, nodesChangedCh)
+	desiresErrCh := ds.WatchDesires(quitCh, updatedCh, deletedCh)
 	dsChangesErrCh := watchDSChanges(ds, dsStore, quitCh, updatedCh, deletedCh)
-	nodeChangesErrCh := watchNodeChanges(applicator, quitCh, nodesChangedCh)
 
 	//
 	// Verify that the pod has been scheduled
 	//
-	numNodes := waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes := waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 1, "took too long to schedule")
 
 	scheduled = scheduledPods(t, ds)
@@ -255,7 +212,7 @@ func TestSchedule(t *testing.T) {
 	}
 
 	// The node watch should notice a change
-	numNodes = waitForNodes(t, ds, 11, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 11, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 11, "took too long to schedule")
 
 	scheduled = scheduledPods(t, ds)
@@ -271,7 +228,7 @@ func TestSchedule(t *testing.T) {
 	fmt.Println(applicator.GetLabels(labels.NODE, "nodeOk"))
 
 	// The node watch should notice a change
-	numNodes = waitForNodes(t, ds, 12, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 12, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 12, "took too long to schedule")
 
 	// Schedule only a node that is both nodeQuality=good and cherry=pick
@@ -284,7 +241,7 @@ func TestSchedule(t *testing.T) {
 	_, err = dsStore.MutateDS(ds.ID(), mutator)
 	Assert(t).IsNil(err, "Unxpected error trying to mutate daemon set")
 
-	numNodes = waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 1, "took too long to schedule")
 
 	// Verify that the scheduled pod is correct
@@ -309,7 +266,7 @@ func TestSchedule(t *testing.T) {
 	_, err = dsStore.MutateDS(ds.ID(), mutator)
 	Assert(t).IsNil(err, "Unxpected error trying to mutate daemon set")
 
-	numNodes = waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 1, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 1, "took too long to unschedule")
 
 	//
@@ -324,7 +281,7 @@ func TestSchedule(t *testing.T) {
 	Assert(t).IsNil(err, "Unxpected error trying to mutate daemon set")
 
 	// 11 good nodes 11 bad nodes, and 1 good cherry picked node = 23 nodes
-	numNodes = waitForNodes(t, ds, 23, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 23, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 23, "took too long to schedule")
 
 	//
@@ -335,7 +292,7 @@ func TestSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to delete daemon set: %v", err)
 	}
-	numNodes = waitForNodes(t, ds, 0, desiresErrCh, dsChangesErrCh, nodeChangesErrCh)
+	numNodes = waitForNodes(t, ds, 0, desiresErrCh, dsChangesErrCh)
 	Assert(t).AreEqual(numNodes, 0, "took too long to unschedule")
 
 	scheduled = scheduledPods(t, ds)

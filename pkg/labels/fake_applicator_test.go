@@ -68,12 +68,12 @@ func TestMatches(t *testing.T) {
 	Assert(t).AreEqual(labeled[0].ID, "hi", "expected the ID with the right label to match")
 }
 
-func TestWatchDiff(t *testing.T) {
+func TestWatchMatchDiff(t *testing.T) {
 	app := NewFakeApplicator()
 
 	quitCh := make(chan struct{})
 	defer close(quitCh)
-	inCh := app.WatchDiff(NODE, quitCh)
+	inCh := app.WatchMatchDiff(labels.Everything(), NODE, quitCh)
 
 	var changes *LabeledChanges
 	select {
@@ -81,7 +81,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 0, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 0, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 0, "expected number of deleted labels to match")
@@ -95,7 +94,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 1, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 0, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 0, "expected number of deleted labels to match")
@@ -111,7 +109,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 1, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 1, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 0, "expected number of deleted labels to match")
@@ -127,7 +124,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 1, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 0, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 1, "expected number of deleted labels to match")
@@ -145,7 +141,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 1, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 1, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 1, "expected number of deleted labels to match")
@@ -161,7 +156,6 @@ func TestWatchDiff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Expected something on channel but found nothing")
 	}
-	Assert(t).IsNil(changes.Err, "expected no errors watching differences")
 	Assert(t).AreEqual(len(changes.Created), 0, "expected number of created labels to match")
 	Assert(t).AreEqual(len(changes.Updated), 0, "expected number of updated labels to match")
 	Assert(t).AreEqual(len(changes.Deleted), 2, "expected number of deleted labels to match")
