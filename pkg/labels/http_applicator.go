@@ -107,9 +107,3 @@ func (h *httpApplicator) WatchMatchDiff(
 ) <-chan *LabeledChanges {
 	panic("Not implemented")
 }
-
-/*
-func (h *httpApplicator) WatchDiff(labelType Type, quitCh <-chan struct{}) <-chan *LabeledChanges {
-	panic("Not implemented")
-}
-*/
