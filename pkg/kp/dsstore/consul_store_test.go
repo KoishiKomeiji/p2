@@ -418,7 +418,7 @@ func TestWatch(t *testing.T) {
 	inCh := store.Watch(quitCh)
 	defer close(quitCh)
 
-	var watched WatchedDaemonSets
+	var watched *WatchedDaemonSets
 	select {
 	case watched = <-inCh:
 	case <-time.After(5 * time.Second):

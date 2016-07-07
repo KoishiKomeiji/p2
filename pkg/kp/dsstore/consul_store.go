@@ -217,8 +217,8 @@ func (s *consulStore) MutateDS(
 // Watch watches dsTree for changes and returns a blocking channel
 // where the client can read a WatchedDaemonSets object which contain
 // changed daemon sets
-func (s *consulStore) Watch(quitCh <-chan struct{}) <-chan WatchedDaemonSets {
-	outCh := make(chan WatchedDaemonSets)
+func (s *consulStore) Watch(quitCh <-chan struct{}) <-chan *WatchedDaemonSets {
+	outCh := make(chan *WatchedDaemonSets)
 	errCh := make(chan error, 1)
 
 	// Watch for changes in the dsTree and deletedDSTree
@@ -232,7 +232,7 @@ func (s *consulStore) Watch(quitCh <-chan struct{}) <-chan WatchedDaemonSets {
 			var kvps *consulutil.WatchedChanges
 
 			// Make a list of changed daemon sets and sends it on outCh
-			outgoingDSs := WatchedDaemonSets{}
+			outgoingDSs := &WatchedDaemonSets{}
 
 			// Populate kvps by reading inCh and checking for errors
 			select {

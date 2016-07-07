@@ -157,8 +157,8 @@ func (s *FakeDSStore) MutateDS(
 	return ds, nil
 }
 
-func (s *FakeDSStore) Watch(quitCh <-chan struct{}) <-chan dsstore.WatchedDaemonSets {
-	outCh := make(chan dsstore.WatchedDaemonSets)
+func (s *FakeDSStore) Watch(quitCh <-chan struct{}) <-chan *dsstore.WatchedDaemonSets {
+	outCh := make(chan *dsstore.WatchedDaemonSets)
 
 	go func() {
 		for {
@@ -169,7 +169,7 @@ func (s *FakeDSStore) Watch(quitCh <-chan struct{}) <-chan dsstore.WatchedDaemon
 			}
 
 			s.watchersLock.Lock()
-			outgoingChanges := dsstore.WatchedDaemonSets{}
+			outgoingChanges := &dsstore.WatchedDaemonSets{}
 			var watchersToDelete []fields.ID
 			// Reads in new changes that are sent to FakeDSStore.watchers
 			for _, ch := range s.watchers {

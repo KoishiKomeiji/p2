@@ -51,7 +51,7 @@ type Store interface {
 		mutator func(fields.DaemonSet) (fields.DaemonSet, error),
 	) (fields.DaemonSet, error)
 
-	Watch(quit <-chan struct{}) <-chan WatchedDaemonSets
+	Watch(quit <-chan struct{}) <-chan *WatchedDaemonSets
 }
 
 func IsNotExist(err error) bool {

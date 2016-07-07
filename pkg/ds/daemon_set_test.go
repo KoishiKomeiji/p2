@@ -82,7 +82,7 @@ func watchDSChanges(
 		defer close(errCh)
 
 		for {
-			var watched dsstore.WatchedDaemonSets
+			var watched *dsstore.WatchedDaemonSets
 
 			// Get some changes
 			select {
